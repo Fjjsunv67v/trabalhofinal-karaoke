@@ -1,0 +1,30 @@
+### Requisições da API de músicas (extensão REST Client do VS Code)
+### Para testar na Render, troque o endereço abaixo pelo https://trabalhofinal-karaoke.onrender.com
+@base = http://localhost:3000
+
+### Listar
+GET {{base}}/api/musicas
+
+### Cadastrar
+POST {{base}}/api/musicas
+Content-Type: application/json
+
+{ "nome": "My Hero", "artista": "Foo Fighters" }
+
+### Consultar (troque o 1 pelo id que apareceu na listagem)
+GET {{base}}/api/musicas/1
+
+### Editar
+PUT {{base}}/api/musicas/1
+Content-Type: application/json
+
+{ "nome": "My Hero", "artista": "Foo Fighters" }
+
+### Excluir
+DELETE {{base}}/api/musicas/1
+
+### Erro esperado: id que não existe (404)
+GET {{base}}/api/musicas/99999
+
+### Erro esperado: id inválido (400)
+GET {{base}}/api/musicas/abc

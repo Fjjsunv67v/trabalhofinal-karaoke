@@ -1,49 +1,104 @@
-// dao/musicaDAO.js
-const { Musica } = require('../karaoke/musica');
+// DAO/MusicaDAO.js
+// Acesso às tabelas "musicas" e "partes" no Supabase.
+// Todos os métodos são async: o banco demora para responder, então usamos await.
+const supabase = require('../supabaseClient');
+const artistaDAO = require('./ArtistaDAO');
+
+// Campos que pedimos ao banco: a música, o artista (tabela ligada) e as partes
+const CAMPOS_COMPLETOS =
+    'id, nome, artista:artistas(id, nome), partes(id, ordem, letra, tempo_espera, tag)';
+
+// Converte a linha do banco para o formato que a API devolve (contrato do trabalho)
+function formatarMusica(linha) {
+    const partes = (linha.partes || [])
+        .sort((a, b) => a.ordem - b.ordem)
+        .map(p => ({
+            id: p.id,
+            ordem: p.ordem,
+            letra: p.letra,
+            tempoEspera: p.tempo_espera, // no banco é tempo_espera; na API é tempoEspera
+            tag: p.tag
+        }));
+
+    return { id: linha.id, nome: linha.nome, artista: linha.artista, partes };
+}
 
 class MusicaDAO {
-    constructor() {
-        // "banco de dados" em memória — array de objetos Musica
-        this.musicas = [];
-        this.proximoId = 0;
+    // Lista todas as músicas: [{ id, nome, artista: { id, nome }, totalPartes }]
+    async listarTodas() {
+        const { data, error } = await supabase
+            .from('musicas')
+            .select('id, nome, artista:artistas(id, nome), partes(count)')
+            .order('id');
+
+        if (error) throw new Error(error.message);
+
+        return data.map(m => ({
+            id: m.id,
+            nome: m.nome,
+            artista: m.artista,
+            totalPartes: m.partes[0] ? m.partes[0].count : 0
+        }));
     }
 
-    // Retorna todas as músicas
-    listarTodas() {
-        return this.musicas;
+    // Busca uma música (com partes) pelo ID. Devolve null se não existir.
+    async buscarPorId(id) {
+        const { data, error } = await supabase
+            .from('musicas')
+            .select(CAMPOS_COMPLETOS)
+            .eq('id', id)
+            .maybeSingle();
+
+        if (error) throw new Error(error.message);
+        if (!data) return null;
+        return formatarMusica(data);
     }
 
-    // Busca uma música pelo ID
-    buscarPorId(id) {
-        return this.musicas.find(m => m.id === id) || null;
+    // Insere uma música. O artista chega como texto: achamos (ou criamos) o artista
+    // e guardamos o id dele em musicas.artista_id.
+    async inserir(nome, nomeArtista) {
+        const artista = await artistaDAO.buscarOuCriar(nomeArtista);
+
+        const { data, error } = await supabase
+            .from('musicas')
+            .insert({ nome, artista_id: artista.id })
+            .select('id')
+            .single();
+
+        if (error) throw new Error(error.message);
+        return this.buscarPorId(data.id);
     }
 
-    // Insere uma nova música e retorna o objeto criado (com ID)
-    inserir(nome, artista) {
-        const novaMusica = new Musica(nome, artista);
-        novaMusica.id = this.proximoId++;
-        this.musicas.push(novaMusica); //persistir objeto
-        return novaMusica;
+    // Atualiza nome e artista. Devolve null se a música não existir.
+    async atualizar(id, nome, nomeArtista) {
+        const existente = await this.buscarPorId(id);
+        if (!existente) return null;
+
+        const artista = await artistaDAO.buscarOuCriar(nomeArtista);
+
+        const { error } = await supabase
+            .from('musicas')
+            .update({ nome, artista_id: artista.id })
+            .eq('id', id);
+
+        if (error) throw new Error(error.message);
+        return this.buscarPorId(id);
     }
 
-    // Atualiza nome e artista de uma música existente
-    atualizar(id, nome, artista) {
-        const musica = this.buscarPorId(id);
-        if (!musica) return null;
+    // Remove a música (as partes saem junto: on delete cascade no banco).
+    // Devolve a música removida, ou null se ela não existia.
+    async remover(id) {
+        const existente = await this.buscarPorId(id);
+        if (!existente) return null;
 
-        musica.nome = nome;
-        musica.artista = artista;
-        return musica;
-    }
+        const { error } = await supabase
+            .from('musicas')
+            .delete()
+            .eq('id', id);
 
-    // Remove uma música pelo ID
-    remover(id) {
-        const indice = this.musicas.findIndex(m => m.id === id);
-        if (indice === -1) return null;
-
-        return this.musicas.splice(indice, 1)[0];
+        if (error) throw new Error(error.message);
+        return existente;
     }
 }
 
-// Exporta uma INSTÂNCIA única (Singleton)
 module.exports = new MusicaDAO();
